@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "CS Research Design & Media Overlay",
+  "version": "2.0.0",
+  "description": "A Shadow DOM research overlay with drawing, local media, portable layouts, and undo/redo.",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_title": "Toggle Research Overlay"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
