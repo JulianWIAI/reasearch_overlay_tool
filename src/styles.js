@@ -1,5 +1,17 @@
 export const styles = `
-  :host { all: initial; }
+  :host {
+    all: initial;
+    display: block;
+    color-scheme: dark;
+    position: fixed;
+    inset: 0;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  :host([popover]) { overflow: visible; }
   * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
   button, input, textarea { font: inherit; }
   #toolbar {

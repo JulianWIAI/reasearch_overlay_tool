@@ -8,6 +8,10 @@ export class CanvasRenderer {
     this.context = canvas.getContext("2d");
     this.abortController = new AbortController();
     this.currentStroke = null;
+    this.backingCanvas = this.window.document.createElement("canvas");
+    this.backingContext = this.backingCanvas.getContext("2d");
+    this.logicalWidth = 0;
+    this.logicalHeight = 0;
 
     this.resize = this.resize.bind(this);
     this.render = this.render.bind(this);
@@ -28,20 +32,18 @@ export class CanvasRenderer {
   }
 
   resize() {
-    const oldWidth = this.canvas.width;
-    const oldHeight = this.canvas.height;
     const width = Math.max(1, Math.round(this.window.innerWidth));
     const height = Math.max(1, Math.round(this.window.innerHeight));
-    if (!this.context || (oldWidth === width && oldHeight === height)) return;
+    if (!this.context || !this.backingContext) return;
 
-    const backing = this.window.document.createElement("canvas");
-    backing.width = oldWidth;
-    backing.height = oldHeight;
-    backing.getContext?.("2d")?.drawImage?.(this.canvas, 0, 0);
     this.canvas.width = width;
     this.canvas.height = height;
     this.context = this.canvas.getContext("2d");
-    this.context.drawImage?.(backing, 0, 0);
+    this.logicalWidth = Math.max(this.logicalWidth, width);
+    this.logicalHeight = Math.max(this.logicalHeight, height);
+    this.backingCanvas.width = this.logicalWidth;
+    this.backingCanvas.height = this.logicalHeight;
+    this.backingContext = this.backingCanvas.getContext("2d");
     this.render();
   }
 
@@ -86,15 +88,37 @@ export class CanvasRenderer {
     context.restore?.();
   }
 
+  drawStrokeTo(context, stroke) {
+    const previous = this.context;
+    this.context = context;
+    this.renderStroke(stroke);
+    this.context = previous;
+  }
+
   render() {
-    if (!this.context) return;
+    if (!this.context || !this.backingContext) return;
+    this.backingContext.clearRect(0, 0, this.logicalWidth, this.logicalHeight);
+    this.state.strokes.forEach((stroke) => this.drawStrokeTo(this.backingContext, stroke));
+    if (this.currentStroke) this.drawStrokeTo(this.backingContext, this.currentStroke);
+
     this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.state.strokes.forEach((stroke) => this.renderStroke(stroke));
-    if (this.currentStroke) this.renderStroke(this.currentStroke);
+    this.context.drawImage?.(
+      this.backingCanvas,
+      0,
+      0,
+      this.canvas.width,
+      this.canvas.height,
+      0,
+      0,
+      this.canvas.width,
+      this.canvas.height
+    );
   }
 
   destroy() {
     this.abortController.abort();
     this.unsubscribe();
+    this.backingCanvas.width = 1;
+    this.backingCanvas.height = 1;
   }
 }

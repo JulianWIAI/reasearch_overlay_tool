@@ -9,7 +9,10 @@ function createContext() {
     moveTo: vi.fn(),
     restore: vi.fn(),
     save: vi.fn(),
-    stroke: vi.fn()
+    stroke: vi.fn(),
+    strokeStyle: "",
+    lineWidth: 1,
+    globalCompositeOperation: "source-over"
   };
 }
 

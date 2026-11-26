@@ -1,12 +1,10 @@
+import { normalizeItemGeometry, viewportBounds } from "./geometry.js";
+
 let fallbackId = 0;
 
 function makeId() {
   fallbackId += 1;
   return globalThis.crypto?.randomUUID?.() ?? `overlay-${Date.now()}-${fallbackId}`;
-}
-
-function clamp(value, minimum, maximum) {
-  return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
 
 export class OverlayItemManager {
@@ -16,6 +14,7 @@ export class OverlayItemManager {
     this.window = window;
     this.onStatus = onStatus ?? (() => {});
     this.objectUrls = new Map();
+    this.urlFiles = new Map();
     this.abortController = new AbortController();
     this.unsubscribe = state.subscribe(() => this.render());
     this.layer.ownerDocument.defaultView?.addEventListener("resize", () => this.keepItemsInBounds(), {
@@ -59,13 +58,18 @@ export class OverlayItemManager {
       state.mode = "move";
       const offset = (state.items.length * 28) % 280;
       state.zOrder += 1;
+      const geometry = normalizeItemGeometry({
+        x: 80 + offset,
+        y: 90 + offset,
+        width: values.width,
+        height: values.height
+      }, this.window.innerWidth, this.window.innerHeight);
       state.items.push({
         id: makeId(),
-        x: Math.min(80 + offset, Math.max(0, this.window.innerWidth - values.width)),
-        y: Math.min(90 + offset, Math.max(0, this.window.innerHeight - values.height)),
         opacity: 1,
         zIndex: state.zOrder,
-        ...values
+        ...values,
+        ...geometry
       });
     });
   }
@@ -73,9 +77,11 @@ export class OverlayItemManager {
   render() {
     const currentIds = new Set(this.state.items.map((item) => item.id));
     for (const [id, url] of this.objectUrls) {
-      if (!currentIds.has(id)) {
+      const item = this.state.items.find((candidate) => candidate.id === id);
+      if (!currentIds.has(id) || !item?.file || this.urlFiles.get(id) !== item.file) {
         this.window.URL.revokeObjectURL(url);
         this.objectUrls.delete(id);
+        this.urlFiles.delete(id);
       }
     }
 
@@ -134,6 +140,7 @@ export class OverlayItemManager {
       if (!source) {
         source = this.window.URL.createObjectURL(item.file);
         this.objectUrls.set(item.id, source);
+        this.urlFiles.set(item.id, item.file);
       }
     }
 
@@ -219,11 +226,15 @@ export class OverlayItemManager {
 
     wrapper.addEventListener("pointermove", (event) => {
       if (!gesture || gesture.resize || event.pointerId !== gesture.pointerId) return;
-      const x = clamp(event.clientX - gesture.offsetX, 0, this.window.innerWidth - wrapper.offsetWidth);
-      const y = clamp(event.clientY - gesture.offsetY, 0, this.window.innerHeight - wrapper.offsetHeight);
-      wrapper.style.left = `${Math.round(x)}px`;
-      wrapper.style.top = `${Math.round(y)}px`;
-      coordinates.textContent = `X:${Math.round(x)}, Y:${Math.round(y)}`;
+      const geometry = normalizeItemGeometry({
+        x: event.clientX - gesture.offsetX,
+        y: event.clientY - gesture.offsetY,
+        width: item.width,
+        height: item.height
+      }, this.window.innerWidth, this.window.innerHeight);
+      wrapper.style.left = `${geometry.x}px`;
+      wrapper.style.top = `${geometry.y}px`;
+      coordinates.textContent = `X:${geometry.x}, Y:${geometry.y}`;
     });
 
     wrapper.addEventListener("pointerup", (event) => {
@@ -244,23 +255,22 @@ export class OverlayItemManager {
   }
 
   readGeometry(wrapper) {
-    return {
+    return normalizeItemGeometry({
       x: Number.parseFloat(wrapper.style.left) || 0,
       y: Number.parseFloat(wrapper.style.top) || 0,
       width: Math.max(60, Number.parseFloat(wrapper.style.width) || wrapper.offsetWidth),
       height: Math.max(40, Number.parseFloat(wrapper.style.height) || wrapper.offsetHeight)
-    };
+    }, this.window.innerWidth, this.window.innerHeight);
   }
 
   keepItemsInBounds() {
     if (!this.state.items.length) return;
+    const bounds = viewportBounds(this.window);
     let changed = false;
     for (const item of this.state.items) {
-      const x = clamp(item.x, 0, this.window.innerWidth - item.width);
-      const y = clamp(item.y, 0, this.window.innerHeight - item.height);
-      if (x !== item.x || y !== item.y) {
-        item.x = x;
-        item.y = y;
+      const geometry = normalizeItemGeometry(item, bounds.width, bounds.height);
+      if (Object.keys(geometry).some((key) => geometry[key] !== item[key])) {
+        Object.assign(item, geometry);
         changed = true;
       }
     }
@@ -272,6 +282,7 @@ export class OverlayItemManager {
     this.unsubscribe();
     for (const url of this.objectUrls.values()) this.window.URL.revokeObjectURL(url);
     this.objectUrls.clear();
+    this.urlFiles.clear();
     this.layer.replaceChildren();
   }
 }

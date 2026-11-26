@@ -6,6 +6,24 @@ import { Toolbar } from "./toolbar.js";
 
 export const HOST_ID = "research-overlay-host";
 
+const HOST_STYLES = {
+  position: "fixed",
+  inset: "0",
+  width: "100vw",
+  height: "100vh",
+  margin: "0",
+  padding: "0",
+  border: "0",
+  zIndex: "2147483647",
+  pointerEvents: "none",
+  isolation: "isolate",
+  contain: "layout style paint",
+  transform: "none",
+  filter: "none",
+  perspective: "none",
+  background: "transparent"
+};
+
 export class ResearchOverlayApp {
   constructor({ document = globalThis.document, window = globalThis.window } = {}) {
     this.document = document;
@@ -13,15 +31,10 @@ export class ResearchOverlayApp {
     this.destroyed = false;
     this.host = document.createElement("div");
     this.host.id = HOST_ID;
-    Object.assign(this.host.style, {
-      position: "fixed",
-      inset: "0",
-      width: "100vw",
-      height: "100vh",
-      zIndex: "2147483647",
-      pointerEvents: "none"
-    });
+    this.host.setAttribute("popover", "manual");
     this.host.setAttribute("aria-label", "Research overlay");
+    this.host.setAttribute("role", "presentation");
+    this.applyHostStyles();
     const shadow = this.host.attachShadow({ mode: "open" });
     const style = document.createElement("style");
     style.textContent = styles;
@@ -29,6 +42,7 @@ export class ResearchOverlayApp {
     this.root = document.createElement("div");
     shadow.appendChild(this.root);
     document.documentElement.appendChild(this.host);
+    this.useTopLayer();
 
     this.state = new OverlayState();
     this.toolbar = new Toolbar({
@@ -62,9 +76,24 @@ export class ResearchOverlayApp {
   }
 
   syncHost() {
-    this.host.style.display = this.state.visible ? "block" : "none";
+    this.host.style.setProperty("display", this.state.visible ? "block" : "none", "important");
     this.host.dataset.active = String(this.state.active);
     this.host.dataset.visible = String(this.state.visible);
+  }
+
+  applyHostStyles() {
+    for (const [property, value] of Object.entries(HOST_STYLES)) {
+      this.host.style.setProperty(property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`), value, "important");
+    }
+  }
+
+  useTopLayer() {
+    try {
+      this.host.showPopover?.();
+      this.host.dataset.topLayer = typeof this.host.showPopover === "function" ? "true" : "fallback";
+    } catch {
+      this.host.dataset.topLayer = "fallback";
+    }
   }
 
   toggle() {
@@ -91,6 +120,11 @@ export class ResearchOverlayApp {
     this.renderer.destroy();
     this.items.destroy();
     this.toolbar.destroy();
+    try {
+      this.host.hidePopover?.();
+    } catch {
+      // The host may already have been removed by page navigation.
+    }
     delete this.host.__researchOverlayController;
     this.host.remove();
   }
