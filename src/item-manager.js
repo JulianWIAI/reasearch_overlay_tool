@@ -1,6 +1,13 @@
 import { normalizeItemGeometry, viewportBounds } from "./geometry.js";
 
 let fallbackId = 0;
+export const MIN_FONT_SIZE = 10;
+export const MAX_FONT_SIZE = 64;
+
+function normalizeFontSize(value) {
+  const parsed = Number(value);
+  return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Number.isFinite(parsed) ? parsed : 15));
+}
 
 function makeId() {
   fallbackId += 1;
@@ -27,7 +34,9 @@ export class OverlayItemManager {
       type: "text",
       width: 260,
       height: 130,
-      textContent: ""
+      textContent: "",
+      fontSize: 15,
+      isBold: false
     });
   }
 
@@ -105,7 +114,20 @@ export class OverlayItemManager {
     const hud = this.layer.ownerDocument.createElement("div");
     hud.className = "item-hud";
     hud.innerHTML = `
-      <span class="coords">X:${Math.round(item.x)}, Y:${Math.round(item.y)}</span>
+      <span class="item-drag-handle" aria-label="Drag overlay item" title="Drag overlay item">
+        <span aria-hidden="true">⠿</span>
+        <span class="coords">X:${Math.round(item.x)}, Y:${Math.round(item.y)}</span>
+      </span>
+      ${item.type === "text" ? `
+        <label class="text-font-control" title="Font size">
+          <span class="visually-hidden">Font size</span>
+          <input class="item-font-size" type="number" min="${MIN_FONT_SIZE}" max="${MAX_FONT_SIZE}"
+            step="1" value="${normalizeFontSize(item.fontSize)}" aria-label="Font size in pixels">
+          <span aria-hidden="true">px</span>
+        </label>
+        <button class="bold-toggle${item.isBold ? " active" : ""}" type="button"
+          aria-label="Toggle bold" aria-pressed="${Boolean(item.isBold)}" title="Toggle bold">B</button>
+      ` : ""}
       <input class="item-opacity" type="range" min="0.1" max="1" step="0.05"
         value="${item.opacity}" aria-label="Item opacity" title="Item opacity">
       <button class="del-btn" type="button" aria-label="Remove item" title="Remove item">×</button>
@@ -116,6 +138,7 @@ export class OverlayItemManager {
     wrapper.appendChild(content);
 
     this.bindOpacity(wrapper, content, item);
+    this.bindTextStyling(wrapper, content, item);
     this.bindRemoval(wrapper, item);
     this.bindGeometry(wrapper, item, content, hud.querySelector(".coords"));
     this.bindText(content, item);
@@ -130,6 +153,8 @@ export class OverlayItemManager {
       textarea.placeholder = "Type an annotation…";
       textarea.value = item.textContent;
       textarea.style.opacity = String(item.opacity);
+      textarea.style.fontSize = `${normalizeFontSize(item.fontSize)}px`;
+      textarea.style.fontWeight = item.isBold ? "700" : "400";
       textarea.setAttribute("aria-label", "Annotation text");
       return textarea;
     }
@@ -198,6 +223,28 @@ export class OverlayItemManager {
     });
   }
 
+  bindTextStyling(wrapper, content, item) {
+    if (item.type !== "text") return;
+    const fontSize = wrapper.querySelector(".item-font-size");
+    const boldToggle = wrapper.querySelector(".bold-toggle");
+    fontSize.addEventListener("pointerdown", (event) => event.stopPropagation());
+    boldToggle.addEventListener("pointerdown", (event) => event.stopPropagation());
+
+    fontSize.addEventListener("change", () => {
+      const value = normalizeFontSize(fontSize.value);
+      this.state.transaction((state) => {
+        const current = state.items.find((candidate) => candidate.id === item.id);
+        if (current) current.fontSize = value;
+      });
+    });
+    boldToggle.addEventListener("click", () => {
+      this.state.transaction((state) => {
+        const current = state.items.find((candidate) => candidate.id === item.id);
+        if (current) current.isBold = !current.isBold;
+      });
+    });
+  }
+
   bindText(content, item) {
     if (item.type !== "text") return;
     content.addEventListener("change", () => {
@@ -213,7 +260,14 @@ export class OverlayItemManager {
 
     wrapper.addEventListener("pointerdown", (event) => {
       if (this.state.clickThrough || this.state.mode !== "move") return;
-      if (event.target.closest(".item-hud") || event.target === content && content.tagName === "TEXTAREA") return;
+      const dragHandle = event.target.closest(".item-drag-handle");
+      if (event.target.closest(".item-hud") && !dragHandle) return;
+      if (event.target === content && content.tagName === "TEXTAREA") return;
+      if (dragHandle) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      wrapper.classList.add("is-dragging");
       const rect = wrapper.getBoundingClientRect();
       gesture = {
         pointerId: event.pointerId,
@@ -241,6 +295,7 @@ export class OverlayItemManager {
       if (!gesture) return;
       const geometry = this.readGeometry(wrapper);
       gesture = null;
+      wrapper.classList.remove("is-dragging");
       wrapper.releasePointerCapture?.(event.pointerId);
       this.state.transaction((state) => {
         const current = state.items.find((candidate) => candidate.id === item.id);
@@ -250,6 +305,7 @@ export class OverlayItemManager {
 
     wrapper.addEventListener("pointercancel", () => {
       gesture = null;
+      wrapper.classList.remove("is-dragging");
       this.render();
     });
   }

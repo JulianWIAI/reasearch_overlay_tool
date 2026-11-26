@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountResearchOverlay } from "../src/app.js";
-import { SCHEMA_VERSION } from "../src/layout.js";
+import { exportLayout, SCHEMA_VERSION } from "../src/layout.js";
 
 let app;
 
@@ -60,9 +60,124 @@ describe("toolbar modes and shortcuts", () => {
     }));
     expect(app.state.mode).toBe("draw");
   });
+
+  it("drags the toolbar within viewport bounds without affecting toolbar controls or history", () => {
+    const root = mount();
+    const toolbar = button(root, "toolbar");
+    const handle = button(root, "toolbar-drag-handle");
+    Object.defineProperty(toolbar, "offsetWidth", { configurable: true, value: 500 });
+    Object.defineProperty(toolbar, "offsetHeight", { configurable: true, value: 80 });
+
+    window.dispatchEvent(new Event("resize"));
+    expect(handle.getAttribute("aria-label")).toBe("Drag toolbar");
+    expect(toolbar.style.transform).toBe("none");
+    const historyBeforeDrag = app.state.undoStack.length;
+
+    pointer(handle, "pointerdown", toolbar.style.left ? Number.parseInt(toolbar.style.left) + 5 : 645, 17);
+    pointer(handle, "pointermove", 2000, 1000);
+    pointer(handle, "pointerup", 2000, 1000);
+    expect(toolbar.style.left).toBe("772px");
+    expect(toolbar.style.top).toBe("632px");
+    expect(app.state.undoStack).toHaveLength(historyBeforeDrag);
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 300 });
+    window.dispatchEvent(new Event("resize"));
+    expect(toolbar.style.left).toBe("92px");
+    expect(toolbar.style.top).toBe("212px");
+    expect(app.state.undoStack).toHaveLength(historyBeforeDrag);
+
+    button(root, "btn-clickthrough").click();
+    expect(app.state.clickThrough).toBe(true);
+    expect(getComputedStyle(toolbar).pointerEvents).toBe("auto");
+    button(root, "btn-add-text").click();
+    expect(app.state.items).toHaveLength(1);
+  });
 });
 
 describe("overlay items", () => {
+  it("persists per-text font size and bold state through undo, redo, and JSON round trip", async () => {
+    const root = mount();
+    button(root, "btn-add-text").click();
+
+    const fontSize = root.querySelector(".item-font-size");
+    fontSize.value = "72";
+    fontSize.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(app.state.items[0].fontSize).toBe(64);
+    expect(root.querySelector("textarea").style.fontSize).toBe("64px");
+
+    root.querySelector(".bold-toggle").click();
+    expect(app.state.items[0].isBold).toBe(true);
+    expect(root.querySelector("textarea").style.fontWeight).toBe("700");
+    expect(root.querySelector(".bold-toggle").getAttribute("aria-pressed")).toBe("true");
+
+    button(root, "btn-undo").click();
+    expect(app.state.items[0].isBold).toBe(false);
+    expect(root.querySelector("textarea").style.fontWeight).toBe("400");
+    button(root, "btn-redo").click();
+    expect(app.state.items[0].isBold).toBe(true);
+
+    const exported = JSON.parse(JSON.stringify(exportLayout(app.state)));
+    expect(exported.items[0]).toMatchObject({
+      type: "text",
+      fontSize: 64,
+      isBold: true
+    });
+
+    button(root, "btn-clear").click();
+    const importedFile = new File(["unused"], "styled-text.json", {
+      type: "application/json"
+    });
+    importedFile.text = async () => JSON.stringify(exported);
+    setFiles(button(root, "layout-input"), [importedFile]);
+    await vi.waitFor(() => expect(app.state.items).toHaveLength(1));
+    expect(app.state.items[0]).toMatchObject({ fontSize: 64, isBold: true });
+    expect(root.querySelector("textarea").style.fontSize).toBe("64px");
+    expect(root.querySelector("textarea").style.fontWeight).toBe("700");
+    expect(root.querySelector(".item-font-size").value).toBe("64");
+  });
+
+  it("drags text from the HUD while preserving textarea editing and viewport bounds", () => {
+    const root = mount();
+    button(root, "btn-add-text").click();
+    const wrapper = root.querySelector(".overlay-item");
+    const textarea = root.querySelector("textarea");
+    const handle = root.querySelector(".item-drag-handle");
+
+    textarea.focus();
+    textarea.value = "Editable note";
+    textarea.setSelectionRange(0, textarea.value.length);
+    textarea.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(app.state.items[0].textContent).toBe("Editable note");
+
+    wrapper.getBoundingClientRect = () => ({
+      left: 80,
+      right: 340,
+      top: 90,
+      bottom: 220,
+      width: 260,
+      height: 130
+    });
+    Object.defineProperty(wrapper, "offsetWidth", { configurable: true, value: 260 });
+    Object.defineProperty(wrapper, "offsetHeight", { configurable: true, value: 130 });
+    const historyBeforeDrag = app.state.undoStack.length;
+
+    pointer(handle, "pointerdown", 90, 96);
+    pointer(handle, "pointermove", 2000, 1200);
+    pointer(handle, "pointerup", 2000, 1200);
+    expect(app.state.items[0]).toMatchObject({ x: 1020, y: 590 });
+    expect(root.querySelector(".coords").textContent).toBe("X:1020, Y:590");
+    expect(app.state.undoStack).toHaveLength(historyBeforeDrag + 1);
+
+    const liveTextarea = root.querySelector("textarea");
+    liveTextarea.focus();
+    liveTextarea.value = "Still editable";
+    liveTextarea.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(app.state.items[0].textContent).toBe("Still editable");
+    button(root, "btn-undo").click();
+    expect(root.querySelector("textarea").value).toBe("Editable note");
+  });
+
   it("adds, edits, moves, changes opacity, and removes text", () => {
     const root = mount();
     button(root, "btn-add-text").click();

@@ -2,6 +2,8 @@
 
 A Manifest V3 research and visual-annotation overlay for Chrome and Microsoft Edge. Draw on a page, add text, images, GIFs, and videos, and export a portable layout without modifying the host website.
 
+![ResearchOverlayTool checkout redesign inspection](docs/research-overlay-demo.png)
+
 ## Why I Built It
 
 I wanted a lightweight way to capture research observations directly over web applications while preserving the original page. The overlay is useful for UX reviews, competitive analysis, bug reproduction, and design feedback: annotations remain temporary, tab-local, and non-destructive.
@@ -22,6 +24,8 @@ The UI and canvas live inside an open Shadow DOM. Scoped styles cannot leak into
 
 Host-level listeners are limited and use `AbortController` for deterministic teardown. Overlay drag/draw listeners only consume interaction while their specific mode is active; click-through returns pointer handling to the underlying page. `esbuild` bundles `src/content-entry.js` into the root `content.js`, so Chrome and Edge inject one self-contained file with no extension runtime dependencies.
 
+The toolbar has a dedicated pointer-capture drag handle. Toolbar position is viewport-relative, stored as pixel coordinates, and clamped with an 8px margin during dragging and window resizing. This interaction state stays inside the Toolbar module and is intentionally excluded from layout undo/redo history.
+
 ## Resilient Canvas & Coordinates
 
 Drawings are retained as vector stroke commands and rendered into a logical backing canvas that never shrinks when the visible viewport does. The visible canvas is cropped from that buffer without scaling, so a later expansion reveals the preserved drawing instead of stretching or clipping it permanently. Erase commands remain part of the same command sequence and are replayed through bounded undo/redo.
@@ -40,7 +44,9 @@ These viewport semantics avoid feedback from page scroll offsets and make captur
 - **Local media is intentionally not embedded in JSON.** Export stores item metadata and file names, but browser object URLs cannot be reopened by another session. Imported media is rendered as a clearly labeled placeholder and can be restored by re-adding the local file.
 - **Canvas data is command-based.** The logical backing buffer and stroke commands preserve geometry during viewport resize, but very large drawings consume more memory and redraw work than a flattened bitmap.
 - **Top layer is a progressive enhancement.** Current Chrome and Edge support it; older engines fall back to a direct fixed host with the largest CSS z-index and important defensive styles, which cannot completely defeat every browser/ancestor edge case.
+- Text overlays store independent `fontSize` (10–64px) and `isBold` values. These fields participate in undo/redo and JSON layouts; older layouts without them import with 15px regular text.
 - **Viewport annotations are not page anchors.** Scrolling the host page leaves the research overlay screen-relative by design.
+- **Toolbar position is session-local UI state.** It survives viewport resizes but is not included in JSON layouts or overlay undo/redo snapshots.
 - **Browser-restricted pages cannot be injected.** Pages such as `chrome://`, `edge://`, `about:`, and extension pages block content scripts. The service worker handles these URLs without attempting injection and displays a badge warning.
 - **State is per tab and session.** Layouts survive until the tab navigates/reloads or the overlay is torn down; use JSON export for persistence.
 - **Click-through is an overlay state, not page access.** It disables interaction on overlay items and the canvas while leaving the host page usable.

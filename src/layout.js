@@ -22,6 +22,8 @@ export function exportLayout(state, now = new Date()) {
       opacity: item.opacity,
       zIndex: item.zIndex,
       textContent: item.type === "text" ? item.textContent : "",
+      fontSize: item.type === "text" ? (item.fontSize ?? 15) : undefined,
+      isBold: item.type === "text" ? Boolean(item.isBold) : undefined,
       media: item.type === "text"
         ? null
         : {
@@ -75,6 +77,23 @@ export function validateLayout(value) {
     if (item.type === "text" && typeof item.textContent !== "string") {
       throw new Error(`Text item ${item.id} is missing textContent.`);
     }
+    if (
+      item.type === "text" &&
+      item.fontSize !== undefined &&
+      !isFiniteNumber(item.fontSize)
+    ) {
+      throw new Error(`Text item ${item.id} has an invalid fontSize.`);
+    }
+    if (
+      item.type === "text" &&
+      item.isBold !== undefined &&
+      typeof item.isBold !== "boolean"
+    ) {
+      throw new Error(`Text item ${item.id} has an invalid isBold value.`);
+    }
+    const fontSize = item.type === "text"
+      ? Math.round(Math.min(64, Math.max(10, item.fontSize ?? 15)))
+      : undefined;
     return {
       id: item.id,
       type: item.type,
@@ -85,6 +104,8 @@ export function validateLayout(value) {
       opacity: item.opacity,
       zIndex: Math.round(item.zIndex),
       textContent: item.type === "text" ? item.textContent.slice(0, 100000) : "",
+      fontSize,
+      isBold: item.type === "text" ? (item.isBold ?? false) : undefined,
       fileName: typeof item.media?.fileName === "string" ? item.media.fileName : "",
       mimeType: typeof item.media?.mimeType === "string" ? item.media.mimeType : "",
       file: null,

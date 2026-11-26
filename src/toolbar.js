@@ -9,8 +9,18 @@ export class Toolbar {
     this.window = window;
     this.onDestroy = onDestroy;
     this.abortController = new AbortController();
+    this.toolbarPosition = { left: 8, top: 12 };
+    this.toolbarDrag = null;
     this.root.innerHTML = `
       <div id="toolbar" role="toolbar" aria-label="Research overlay tools">
+        <span
+          id="toolbar-drag-handle"
+          class="toolbar-drag-handle"
+          role="button"
+          tabindex="0"
+          aria-label="Drag toolbar"
+          title="Drag toolbar"
+        >⠿</span>
         <button id="btn-move" data-mode="move" title="Drag and position items">Move</button>
         <button id="btn-draw" data-mode="draw" title="Freehand drawing">Draw</button>
         <button id="btn-erase" data-mode="erase" title="Erase drawing">Erase</button>
@@ -45,6 +55,7 @@ export class Toolbar {
     `;
 
     this.bind();
+    this.initializeToolbarPosition();
     this.unsubscribe = state.subscribe(() => this.render());
   }
 
@@ -60,6 +71,11 @@ export class Toolbar {
 
   bind() {
     const signal = this.abortController.signal;
+    const handle = this.get("toolbar-drag-handle");
+    handle.addEventListener("pointerdown", (event) => this.onToolbarPointerDown(event), { signal });
+    handle.addEventListener("pointermove", (event) => this.onToolbarPointerMove(event), { signal });
+    handle.addEventListener("pointerup", (event) => this.onToolbarPointerUp(event), { signal });
+    handle.addEventListener("pointercancel", () => this.endToolbarDrag(), { signal });
     this.root.querySelectorAll("[data-mode]").forEach((button) => {
       button.addEventListener("click", () => this.state.setMode(button.dataset.mode), { signal });
     });
@@ -88,6 +104,75 @@ export class Toolbar {
     }, { signal });
     this.get("btn-close").addEventListener("click", () => this.onDestroy?.(), { signal });
     this.window.addEventListener("keydown", (event) => this.onKeyDown(event), { signal });
+    this.window.addEventListener("resize", () => this.clampToolbarPosition(), { signal });
+  }
+
+  initializeToolbarPosition() {
+    const toolbar = this.get("toolbar");
+    const width = this.getToolbarWidth(toolbar);
+    const left = Math.round((Math.max(16, this.window.innerWidth) - width) / 2);
+    this.setToolbarPosition(left, 12);
+  }
+
+  getToolbarWidth(toolbar) {
+    return toolbar.offsetWidth || toolbar.getBoundingClientRect().width || 0;
+  }
+
+  getToolbarHeight(toolbar) {
+    return toolbar.offsetHeight || toolbar.getBoundingClientRect().height || 0;
+  }
+
+  setToolbarPosition(left, top) {
+    const toolbar = this.get("toolbar");
+    const margin = 8;
+    const width = this.getToolbarWidth(toolbar);
+    const height = this.getToolbarHeight(toolbar);
+    const availableWidth = Math.max(margin, this.window.innerWidth - margin - width);
+    const availableHeight = Math.max(margin, this.window.innerHeight - margin - height);
+    this.toolbarPosition = {
+      left: Math.round(Math.min(Math.max(left, margin), availableWidth)),
+      top: Math.round(Math.min(Math.max(top, margin), availableHeight))
+    };
+    toolbar.style.left = `${this.toolbarPosition.left}px`;
+    toolbar.style.top = `${this.toolbarPosition.top}px`;
+    toolbar.style.transform = "none";
+  }
+
+  clampToolbarPosition() {
+    this.setToolbarPosition(this.toolbarPosition.left, this.toolbarPosition.top);
+  }
+
+  onToolbarPointerDown(event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.toolbarDrag = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - this.toolbarPosition.left,
+      offsetY: event.clientY - this.toolbarPosition.top
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.currentTarget.classList.add("dragging");
+  }
+
+  onToolbarPointerMove(event) {
+    if (!this.toolbarDrag || event.pointerId !== this.toolbarDrag.pointerId) return;
+    event.preventDefault();
+    this.setToolbarPosition(
+      event.clientX - this.toolbarDrag.offsetX,
+      event.clientY - this.toolbarDrag.offsetY
+    );
+  }
+
+  onToolbarPointerUp(event) {
+    if (!this.toolbarDrag || event.pointerId !== this.toolbarDrag.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    this.endToolbarDrag();
+  }
+
+  endToolbarDrag() {
+    this.toolbarDrag = null;
+    this.get("toolbar-drag-handle").classList.remove("dragging");
   }
 
   onKeyDown(event) {
